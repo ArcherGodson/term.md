@@ -43,9 +43,10 @@ class Ansi:
 
 
 class MarkdownRenderer:
-    def __init__(self, *, color: bool = True, width: int | None = None) -> None:
+    def __init__(self, *, color: bool = True, width: int | None = None, code_copy: bool = False) -> None:
         self.ansi = Ansi(color)
         self.width = width or shutil.get_terminal_size((88, 24)).columns
+        self.code_copy = code_copy
 
     def render(self, markdown: str) -> str:
         lines = markdown.splitlines()
@@ -100,7 +101,10 @@ class MarkdownRenderer:
             level = len(heading.group(1))
             marker = self.ansi.wrap("#" * level, self.ansi.theme.heading_marker)
             text = self.ansi.wrap(self._render_inline(heading.group(2)), self.ansi.theme.heading)
-            return [f"{marker} {text}", self.ansi.wrap("-" * min(self.width, 72), self.ansi.theme.rule) if level == 1 else ""]
+            rendered = [f"{marker} {text}"]
+            if level == 1:
+                rendered.append(self.ansi.wrap("-" * min(self.width, 72), self.ansi.theme.rule))
+            return rendered
 
         if re.match(r"^\s{0,3}([-*_])(?:\s*\1){2,}\s*$", line):
             return [self.ansi.wrap("-" * min(self.width, 72), self.ansi.theme.rule)]
@@ -150,16 +154,18 @@ class MarkdownRenderer:
         if not lines:
             lines = [""]
         if not self.ansi.enabled:
+            if self.code_copy:
+                return lines
             return [f"    {line}" for line in lines]
 
-        width = max(len(line) for line in lines) + 4
+        width = max(len(line) for line in lines) + (2 if self.code_copy else 4)
         return [self._render_code_line(line, width) for line in lines]
 
     def _render_code_line(self, line: str, width: int) -> str:
-        margin = "  "
-        text = f"  {line}".ljust(width)
+        margin = "" if self.code_copy else "  "
+        text = line.ljust(width) if self.code_copy else f"  {line}".ljust(width)
         if not self.ansi.enabled:
-            return f"    {line}"
+            return line if self.code_copy else f"    {line}"
         return margin + self.ansi.wrap(text, self.ansi.theme.code_block_bg + self.ansi.theme.code_block)
 
     def _looks_like_table(self, line: str) -> bool:
@@ -234,6 +240,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("paths", nargs="*", help="Markdown files to render. Use '-' or omit paths for stdin.")
     parser.add_argument("--width", type=int, help="Wrap output to this terminal width.")
+    parser.add_argument(
+        "--code-copy",
+        action="store_true",
+        help="Render fenced code blocks without leading indentation, keeping them easier to copy.",
+    )
     color = parser.add_mutually_exclusive_group()
     color.add_argument("--color", action="store_true", help="Force ANSI colors even when stdout is not a TTY.")
     color.add_argument("--no-color", action="store_true", help="Disable ANSI colors.")
@@ -243,7 +254,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     color = args.color or (not args.no_color and sys.stdout.isatty())
-    renderer = MarkdownRenderer(color=color, width=args.width)
+    renderer = MarkdownRenderer(color=color, width=args.width, code_copy=args.code_copy)
     rendered_docs = [renderer.render(content) for _, content in read_inputs(args.paths, sys.stdin)]
     sys.stdout.write("\n\n".join(rendered_docs))
     if rendered_docs:
