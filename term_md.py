@@ -29,6 +29,8 @@ class Theme:
     rule: str = "\033[90m"
     link: str = "\033[4;34m"
     table_border: str = "\033[90m"
+    subscript: str = "\033[2m"
+    superscript: str = "\033[1m"
 
 
 class Ansi:
